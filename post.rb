@@ -11,49 +11,67 @@ class Post
     post_types[type].new
   end
 
-  def self.find(limit, type, id)
+  def self.find_by_id(id)
+    return if id.nil?
+
+    db = SQLite3::Database.open(SQLITE_DB_FILE)
+    db.results_as_hash = true
+
+    begin
+      result = db.execute('SELECT * FROM posts WHERE rowid = ?', id)
+    rescue SQLite3::SQLException => e
+      puts "Не удалось выполнить запрос в базе #{SQLITE_DB_FILE}"
+      abort e.message
+    end
+
+    db.close
+
+    if result.empty?
+      puts "Такой id #{id} не найден в базе"
+      return nil
+    else
+      result = result[0]
+
+      post = create(result['type'])
+
+      post.load_data(result)
+
+      post
+    end
+  end
+
+  def self.find_all(limit, type)
     db = SQLite3::Database.open(SQLITE_DB_FILE)
 
-    if !id.nil?
-      db.results_as_hash = true
+    db.results_as_hash = false
 
-      result = db.execute('SELECT * FROM posts WHERE rowid = ?', id)
+    query = 'SELECT rowid, * FROM posts '
 
-      db.close
+    query += 'WHERE type = :type ' unless type.nil?
+    query += 'ORDER by rowid DESC '
+    query += 'LIMIT :limit ' unless limit.nil?
 
-      if result.empty?
-        puts "Такой id #{id} не найден в базе"
-        return nil
-      else
-        result = result[0]
-
-        post = create(result['type'])
-
-        post.load_data(result)
-
-        post
-      end
-    else
-      db.results_as_hash = false
-
-      query = 'SELECT rowid, * FROM posts '
-
-      query += 'WHERE type = :type ' unless type.nil?
-      query += 'ORDER by rowid DESC '
-      query += 'LIMIT :limit ' unless limit.nil?
-
+    begin
       statement = db.prepare query
-
-      statement.bind_param('type', type) unless type.nil?
-      statement.bind_param('limit', limit) unless limit.nil?
-
-      result = statement.execute!
-
-      statement.close
-      db.close
-
-      result
+    rescue SQLite3::SQLException => e
+      puts "Не удалось выполнить запрос в базе #{SQLITE_DB_FILE}"
+      abort e.message
     end
+
+    statement.bind_param('type', type) unless type.nil?
+    statement.bind_param('limit', limit) unless limit.nil?
+
+    begin
+      result = statement.execute!
+    rescue SQLite3::SQLException => e
+      puts "Не удалось выполнить запрос в базе #{SQLITE_DB_FILE}"
+      abort e.message
+    end
+
+    statement.close
+    db.close
+
+    result
   end
 
   def initialize
@@ -89,14 +107,19 @@ class Post
     db = SQLite3::Database.open(SQLITE_DB_FILE)
     db.results_as_hash = true
 
-    db.execute(
-      "INSERT INTO posts (" +
-        to_db_hash.keys.join(',') +
-        ")" +
-        " VALUES (" +
-        ('?,' * to_db_hash.keys.size).chomp(',') +
-        ")", to_db_hash.values
-    )
+    begin
+      db.execute(
+        "INSERT INTO posts (" +
+          to_db_hash.keys.join(',') +
+          ")" +
+          " VALUES (" +
+          ('?,' * to_db_hash.keys.size).chomp(',') +
+          ")", to_db_hash.values
+      )
+    rescue SQLite3::SQLException => e
+      puts "Не удалось выполнить запрос в базе #{SQLITE_DB_FILE}"
+      abort e.message
+    end
 
     insert_row_id = db.last_insert_row_id
 
